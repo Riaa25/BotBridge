@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from openai import OpenAI
 from agents import PersonalAgent
 import time
@@ -99,5 +100,6 @@ if len(participants) > 0:
                     time.sleep(0.5)
 else:
     st.info("No one has joined the room yet. Share the link in the sidebar!")
+
 
 
