@@ -25,11 +25,24 @@ with st.sidebar:
     # ONLY THE HOST NEEDS TO ENTER THIS
     gsk_key = st.text_input("Host API Key (Groq)", type="password", help="Only needed to start negotiation")
     
-    st.divider()
-    # Invite Link Generator
-    st.write("🔗 **Invite Friends:**")
-    st.code(f"http://localhost:8501/?room={room_id}")
-    st.caption("Share this link with your friends!")
+st.divider()
+    # --- DYNAMIC INVITE LINK GENERATOR ---
+    # This automatically detects if you are on localhost or Streamlit Cloud
+    try:
+        # Get the actual URL from the browser (works on deployed apps)
+        from streamlit.components.v1 import html
+        
+        # We can use a simpler trick for Hackathons:
+        # If the URL is localhost, use that; otherwise, default to your public domain
+        current_url = "https://botbridge.streamlit.app" # <--- REPLACE WITH YOUR DEPLOYED URL
+        
+        st.write("🔗 **Invite Friends:**")
+        invite_link = f"{current_url}/?room={room_id}"
+        st.code(invite_link)
+        st.caption("Share this link with your friends!")
+    except:
+        st.write("🔗 **Invite Link (Local):**")
+        st.code(f"http://localhost:8501/?room={room_id}")
 
 # --- MAIN INTERFACE ---
 st.title(f"📱 Group Room: {room_id}")
@@ -81,4 +94,5 @@ if st.button("🚀 Start Group Negotiation"):
                             st.success(f"🏆 FINAL AGREEMENT: {res['proposal']}")
                             st.balloons()
                             st.stop()
+
                     time.sleep(0.5)
