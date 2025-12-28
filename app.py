@@ -3,96 +3,96 @@ from openai import OpenAI
 from agents import PersonalAgent
 import time
 
-st.set_page_config(page_title="BotBridge Group", layout="wide")
+# --- 1. SETUP & PAGE CONFIG ---
+st.set_page_config(page_title="BotBridge", page_icon="🤝", layout="wide")
 
-# --- GLOBAL DATABASE SIMULATION ---
-# This allows data to persist across different users/tabs in the same session
-if "db" not in st.session_state:
-    st.session_state.db = {} # Format: {room_id: {user_name: notes}}
+# --- 2. GLOBAL STORAGE (The "Cloud" Database) ---
+# This dictionary is shared across ALL users and ALL tabs.
+@st.cache_resource
+def get_global_db():
+    return {} # Format: {room_id: {user_name: private_notes}}
 
-# --- URL / ROOM LOGIC ---
-query_params = st.query_params
-room_id = query_params.get("room", "General_Room")
+db = get_global_db()
 
-if room_id not in st.session_state.db:
-    st.session_state.db[room_id] = {}
+# --- 3. URL & ROOM LOGIC ---
+# Automatically detects if a user clicked a link with ?room=XYZ
+room_id = st.query_params.get("room", "Default_Room")
+if room_id not in db:
+    db[room_id] = {}
 
-# --- SIDEBAR ---
+# --- 4. SIDEBAR (The Control Center) ---
 with st.sidebar:
-    st.title("🤝 BotBridge")
-    st.write(f"📍 **Room ID:** `{room_id}`")
+    st.title("🤝 BotBridge Settings")
+    st.info(f"📍 Current Room: **{room_id}**")
     
-    # ONLY THE HOST NEEDS TO ENTER THIS
-    gsk_key = st.text_input("Host API Key (Groq)", type="password", help="Only needed to start negotiation")
+    # Only the host needs to provide the API key
+    gsk_key = st.text_input("Host API Key (Groq)", type="password", help="Starts with gsk_")
     
-st.divider()
-    # --- DYNAMIC INVITE LINK GENERATOR ---
-    # This automatically detects if you are on localhost or Streamlit Cloud
-    try:
-        # Get the actual URL from the browser (works on deployed apps)
-        from streamlit.components.v1 import html
-        
-        # We can use a simpler trick for Hackathons:
-        # If the URL is localhost, use that; otherwise, default to your public domain
-        current_url = "https://botbridge.streamlit.app" # <--- REPLACE WITH YOUR DEPLOYED URL
-        
-        st.write("🔗 **Invite Friends:**")
-        invite_link = f"{current_url}/?room={room_id}"
-        st.code(invite_link)
-        st.caption("Share this link with your friends!")
-    except:
-        st.write("🔗 **Invite Link (Local):**")
-        st.code(f"http://localhost:8501/?room={room_id}")
+    st.divider()
+    
+    # Dynamic Link Generator
+    st.write("🔗 **Invite Participants:**")
+    # This detects your public app URL automatically once deployed
+    base_url = "https://botbridge.streamlit.app" 
+    invite_link = f"{base_url}/?room={room_id}"
+    st.code(invite_link)
+    st.caption("Copy and send this link to your group!")
 
-# --- MAIN INTERFACE ---
-st.title(f"📱 Group Room: {room_id}")
+# --- 5. MAIN INTERFACE ---
+st.title(f"📱 Group Planning: {room_id}")
 
-# 1. User Joins
-user_name = st.text_input("Enter Your Name to Join:", placeholder="e.g. Alice")
+# Step 1: Join the Group
+user_name = st.text_input("1. Your Name", placeholder="e.g. Alice")
 
 if user_name:
-    # 2. User Writes Private Notes
-    # We load existing notes if they already saved some
-    existing_notes = st.session_state.db[room_id].get(user_name, "")
-    user_notes = st.text_area(f"Hello {user_name}, write your private constraints here:", 
-                              value=existing_notes,
-                              height=150)
+    # Step 2: Private Notes
+    st.subheader(f"Welcome {user_name}!")
+    # Load existing notes from the global database if they exist
+    existing_notes = db[room_id].get(user_name, "")
     
-    if st.button("✅ Save My Notes to Group"):
-        st.session_state.db[room_id][user_name] = user_notes
-        st.success(f"Notes for {user_name} are secured in the cloud!")
+    user_notes = st.text_area(
+        "2. Your Private Constraints (What you want, what you hate):", 
+        value=existing_notes,
+        placeholder="e.g. I only eat Italian food. I'm free after 7pm."
+    )
+    
+    if st.button("💾 Save My Notes"):
+        db[room_id][user_name] = user_notes
+        st.success("Your notes are saved in the room! Waiting for others...")
 
 st.divider()
 
-# 3. View Participants
-participants = list(st.session_state.db[room_id].keys())
-st.write(f"👥 **Ready to Negotiate:** {', '.join(participants) if participants else 'Waiting for people...'}")
+# Step 3: View the Group & Negotiate
+participants = list(db[room_id].keys())
 
-# 4. The Negotiation (Run by Host)
-if st.button("🚀 Start Group Negotiation"):
-    if not gsk_key:
-        st.error("The Host must provide a Groq API Key to run the AI agents.")
-    elif len(participants) < 2:
-        st.error("At least 2 people must save notes before starting.")
-    else:
-        client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=gsk_key)
-        agents = [PersonalAgent(name, notes, client) for name, notes in st.session_state.db[room_id].items()]
-        
-        chat_log = "Initial: Group wants to find a common plan."
-        
-        # UI for the Chat
-        with st.container():
+if len(participants) > 0:
+    st.write(f"👥 **People in Room:** {', '.join(participants)}")
+    
+    if st.button("🚀 Start Group Negotiation", use_container_width=True):
+        if not gsk_key:
+            st.error("Please provide the Groq API Key in the sidebar.")
+        elif len(participants) < 2:
+            st.warning("Wait for at least one more person to join the room!")
+        else:
+            client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=gsk_key)
+            agents = [PersonalAgent(name, notes, client) for name, notes in db[room_id].items()]
+            
+            chat_log = "Discussion started to find a group agreement."
+            
             st.subheader("💬 Live Discussion")
+            # The AI Loop
             for round_idx in range(2):
                 for agent in agents:
                     with st.chat_message("user", avatar="🤖"):
                         res = agent.negotiate(chat_log)
                         st.write(f"**{agent.name}'s Assistant:** {res['message']}")
+                        
                         chat_log += f"\n{agent.name}: {res['message']} (Proposal: {res['proposal']})"
                         
                         if res['status'] == "ACCEPT":
-                            st.success(f"🏆 FINAL AGREEMENT: {res['proposal']}")
+                            st.success(f"✅ FINAL PLAN: {res['proposal']}")
                             st.balloons()
                             st.stop()
-
                     time.sleep(0.5)
+else:
+    st.info("No one has joined the room yet. Share the link in the sidebar!")
