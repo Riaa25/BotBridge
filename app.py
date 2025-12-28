@@ -5,7 +5,10 @@ import time
 
 # --- 1. SETUP & PAGE CONFIG ---
 st.set_page_config(page_title="BotBridge", page_icon="🤝", layout="wide")
-
+if os.path.exists("logo.png"):
+    st.image("logo.png", width=200)
+else:
+    st.title("🤝 BotBridge") # Fallback title if image is missing
 # --- 2. GLOBAL STORAGE (The "Cloud" Database) ---
 # This dictionary is shared across ALL users and ALL tabs.
 @st.cache_resource
@@ -96,3 +99,4 @@ if len(participants) > 0:
                     time.sleep(0.5)
 else:
     st.info("No one has joined the room yet. Share the link in the sidebar!")
+
