@@ -36,7 +36,7 @@ with st.sidebar:
     # Dynamic Link Generator
     st.write("🔗 **Invite Participants:**")
     # This detects your public app URL automatically once deployed
-    base_url = "https://botbridge.streamlit.app" 
+    base_url = "https://botbridge-8xrpg3dwkymoexafjmvfgz.streamlit.app" 
     invite_link = f"{base_url}/?room={room_id}"
     st.code(invite_link)
     st.caption("Copy and send this link to your group!")
@@ -99,4 +99,5 @@ if len(participants) > 0:
                     time.sleep(0.5)
 else:
     st.info("No one has joined the room yet. Share the link in the sidebar!")
+
 
