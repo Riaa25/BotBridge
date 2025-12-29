@@ -1,105 +1,107 @@
 import streamlit as st
 import os
+import time
 from openai import OpenAI
 from agents import PersonalAgent
-import time
 
-# --- 1. SETUP & PAGE CONFIG ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="BotBridge", page_icon="🤝", layout="wide")
-if os.path.exists("logo.png"):
-    st.image("logo.png", width=200)
-else:
-    st.title("🤝 BotBridge") # Fallback title if image is missing
-# --- 2. GLOBAL STORAGE (The "Cloud" Database) ---
-# This dictionary is shared across ALL users and ALL tabs.
+
 @st.cache_resource
 def get_global_db():
-    return {} # Format: {room_id: {user_name: private_notes}}
+    # 'rooms' stores user notes, 'config' stores passwords/API keys
+    return {"rooms": {}, "config": {}}
 
-db = get_global_db()
+data = get_global_db()
 
-# --- 3. URL & ROOM LOGIC ---
-# Automatically detects if a user clicked a link with ?room=XYZ
-room_id = st.query_params.get("room", "Default_Room")
-if room_id not in db:
-    db[room_id] = {}
+# --- 2. ROOM & URL LOGIC ---
+room_id = st.query_params.get("room", "Hackathon_Room")
 
-# --- 4. SIDEBAR (The Control Center) ---
+if room_id not in data["rooms"]:
+    data["rooms"][room_id] = {}
+
+# --- 3. SIDEBAR (The Lockbox) ---
 with st.sidebar:
-    st.title("🤝 BotBridge Settings")
-    st.info(f"📍 Current Room: **{room_id}**")
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=150)
     
-    # Only the host needs to provide the API key
-    gsk_key = st.text_input("Host API Key (Groq)", type="password", help="Starts with gsk_")
+    st.title("🛡️ Room Control")
     
+    # Check if room is already set up by a host
+    is_setup = room_id in data["config"]
+    
+    if not is_setup:
+        st.subheader("🆕 Host Setup")
+        host_pass = st.text_input("Create Room Password", type="password")
+        gsk_key = st.text_input("Enter Groq API Key", type="password")
+        
+        if st.button("🚀 Initialize Room"):
+            if host_pass and gsk_key:
+                data["config"][room_id] = {"pass": host_pass, "key": gsk_key}
+                st.success("Room is now LIVE!")
+                st.rerun()
+            else:
+                st.error("Please provide both a password and API key.")
+    else:
+        st.success("✅ Room is Secure & Active")
+        # Hidden Admin Section
+        with st.expander("🔑 Host Login"):
+            check_pass = st.text_input("Verify Password", type="password")
+            if check_pass == data["config"][room_id]["pass"]:
+                st.info("Host Mode Active")
+                if st.button("Reset Room (Clear Data)"):
+                    data["rooms"][room_id] = {}
+                    st.rerun()
+            elif check_pass:
+                st.error("Wrong Password")
+
     st.divider()
-    
-    # Dynamic Link Generator
-    st.write("🔗 **Invite Participants:**")
-    # This detects your public app URL automatically once deployed
-    base_url = "https://botbridge-8xrpg3dwkymoexafjmvfgz.streamlit.app" 
-    invite_link = f"{base_url}/?room={room_id}"
-    st.code(invite_link)
-    st.caption("Copy and send this link to your group!")
+    st.write("🔗 **Share Link:**")
+    # Replace with your actual deployed URL
+    base_url = "https://botbridge-8xrpg3dwkymoexafjmvfgz.streamlit.app"
+    st.code(f"{base_url}/?room={room_id}")
 
-# --- 5. MAIN INTERFACE ---
-st.title(f"📱 Group Planning: {room_id}")
+# --- 4. MAIN INTERFACE (For Everyone) ---
+st.title(f"📱 Room: {room_id}")
 
-# Step 1: Join the Group
-user_name = st.text_input("1. Your Name", placeholder="e.g. Alice")
+if not is_setup:
+    st.warning("Waiting for the Host to initialize the room...")
+    st.stop() # Stops the rest of the page from loading for guests
+
+# Guest/User Flow
+user_name = st.text_input("1. Your Name:", placeholder="e.g., Alice")
 
 if user_name:
-    # Step 2: Private Notes
-    st.subheader(f"Welcome {user_name}!")
-    # Load existing notes from the global database if they exist
-    existing_notes = db[room_id].get(user_name, "")
+    st.subheader(f"Welcome, {user_name}")
+    user_notes = st.text_area("2. Your Private Preferences:", 
+                              value=data["rooms"][room_id].get(user_name, ""),
+                              placeholder="e.g., I'm allergic to peanuts and free at 8pm.")
     
-    user_notes = st.text_area(
-        "2. Your Private Constraints (What you want, what you hate):", 
-        value=existing_notes,
-        placeholder="e.g. I only eat Italian food. I'm free after 7pm."
-    )
-    
-    if st.button("💾 Save My Notes"):
-        db[room_id][user_name] = user_notes
-        st.success("Your notes are saved in the room! Waiting for others...")
+    if st.button("💾 Submit to Group"):
+        data["rooms"][room_id][user_name] = user_notes
+        st.success("Saved! Waiting for the group to be ready...")
 
+# --- 5. THE AI NEGOTIATOR ---
 st.divider()
+participants = list(data["rooms"][room_id].keys())
+st.write(f"👥 **Joined:** {', '.join(participants) if participants else 'Waiting for people...'}")
 
-# Step 3: View the Group & Negotiate
-participants = list(db[room_id].keys())
-
-if len(participants) > 0:
-    st.write(f"👥 **People in Room:** {', '.join(participants)}")
-    
-    if st.button("🚀 Start Group Negotiation", use_container_width=True):
-        if not gsk_key:
-            st.error("Please provide the Groq API Key in the sidebar.")
-        elif len(participants) < 2:
-            st.warning("Wait for at least one more person to join the room!")
-        else:
-            client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=gsk_key)
-            agents = [PersonalAgent(name, notes, client) for name, notes in db[room_id].items()]
-            
-            chat_log = "Discussion started to find a group agreement."
-            
-            st.subheader("💬 Live Discussion")
-            # The AI Loop
-            for round_idx in range(2):
+if len(participants) >= 2:
+    if st.button("🤖 Start AI Negotiation", type="primary"):
+        # Uses the host's key stored in the global config
+        api_key = data["config"][room_id]["key"]
+        client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+        
+        agents = [PersonalAgent(name, notes, client) for name, notes in data["rooms"][room_id].items()]
+        
+        chat_log = "Discussion started."
+        with st.status("Agents are debating..."):
+            for i in range(2): # 2 rounds
                 for agent in agents:
-                    with st.chat_message("user", avatar="🤖"):
-                        res = agent.negotiate(chat_log)
-                        st.write(f"**{agent.name}'s Assistant:** {res['message']}")
-                        
-                        chat_log += f"\n{agent.name}: {res['message']} (Proposal: {res['proposal']})"
-                        
-                        if res['status'] == "ACCEPT":
-                            st.success(f"✅ FINAL PLAN: {res['proposal']}")
-                            st.balloons()
-                            st.stop()
-                    time.sleep(0.5)
-else:
-    st.info("No one has joined the room yet. Share the link in the sidebar!")
-
-
-
+                    res = agent.negotiate(chat_log)
+                    st.chat_message("user", avatar="🤖").write(f"**{agent.name}:** {res['message']}")
+                    chat_log += f"\n{agent.name}: {res['message']}"
+                    if res['status'] == "ACCEPT":
+                        st.balloons()
+                        st.success(f"Agreement Reached: {res['proposal']}")
+                        st.stop()
